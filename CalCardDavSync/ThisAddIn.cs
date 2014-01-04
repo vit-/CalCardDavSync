@@ -6,6 +6,7 @@ using System.Text;
 using System.Xml.Linq;
 using System.Net;
 using System.Threading;
+using System.Runtime.Serialization.Formatters.Binary;
 
 using System.Windows.Forms;
 
@@ -40,13 +41,16 @@ namespace CalCardDavSync
 
         string tmpFilnameContacts;
         string tmpFilnameCalendar;
-        
-        Dictionary<string, string> trackContacts = new Dictionary<string, string>();
-        Dictionary<string, string> trackCalendar = new Dictionary<string, string>();
+
+        string syncStatusFilenameContacts;
+        string syncStatusFilenameCalendar;
+        Dictionary<string, string> trackContacts;
+        Dictionary<string, string> trackCalendar;
 
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
         {
             InitVars();
+            LoadStats();
             threadSyncContacts = new Thread(new ThreadStart(SyncContacts));
             threadSyncCalendar = new Thread(new ThreadStart(SyncCalendar));
 
@@ -75,6 +79,50 @@ namespace CalCardDavSync
             session.Credentials = new NetworkCredential(login, password);
             folderContacts = session.OpenFolder(urlContacts);
             folderCalendar = session.OpenFolder(urlCalendar);
+        }
+
+        private Dictionary<string, string> LoadStats(string filename)
+        {
+            Dictionary<string, string> result;
+            BinaryFormatter formatter = new BinaryFormatter();
+            try
+            {
+                using (Stream f = File.OpenRead(filename))
+                {
+                    result = formatter.Deserialize(f) as Dictionary<string, string>;
+                }
+            }
+            catch { 
+                return new Dictionary<string, string>();
+            }
+            return result;
+        }
+
+        private void LoadStats()
+        {
+            string appDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            appDir = Path.Combine(appDir, "CalCardDavSync");
+            if (!Directory.Exists(appDir)) Directory.CreateDirectory(appDir);
+
+            syncStatusFilenameContacts = Path.Combine(appDir, "synccontacts.dat");
+            syncStatusFilenameCalendar = Path.Combine(appDir, "synccalendar.dat");
+
+            trackContacts = LoadStats(syncStatusFilenameContacts);
+            trackCalendar = LoadStats(syncStatusFilenameCalendar);
+        }
+
+        private void SaveStats(string filename, Dictionary<string, string> dict){
+            BinaryFormatter formatter = new BinaryFormatter();
+            using (Stream f = File.OpenWrite(filename))
+            {
+                formatter.Serialize(f, dict);
+            }
+        }
+
+        private void SaveStats()
+        {
+            SaveStats(syncStatusFilenameContacts, trackContacts);
+            SaveStats(syncStatusFilenameCalendar, trackCalendar);
         }
 
         private void SyncContacts()
@@ -109,6 +157,7 @@ namespace CalCardDavSync
                         trackContacts.Add(remoteContact.DisplayName, contact.EntryID);
                     }
                 }
+                SaveStats(syncStatusFilenameContacts, trackContacts);
                 Thread.Sleep(threadSleepTime);
             }
         }
@@ -140,6 +189,7 @@ namespace CalCardDavSync
                         trackCalendar.Add(remoteEvent.DisplayName, appointment.EntryID);
                     }
                 }
+                SaveStats(syncStatusFilenameCalendar, trackCalendar);
                 Thread.Sleep(threadSleepTime);
             }
         }
