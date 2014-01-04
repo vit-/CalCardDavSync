@@ -125,38 +125,43 @@ namespace CalCardDavSync
             SaveStats(syncStatusFilenameCalendar, trackCalendar);
         }
 
+        private void IterateItems<resourceType>(IFolder folder, Outlook.Folder olFolder, Dictionary<string, string> trackDict, string tmpFilename)
+        {
+            IHierarchyItem[] remoteItems = folder.GetChildren();
+            foreach (IHierarchyItem remoteItem in remoteItems)
+            {
+                if (remoteItem.ItemType != ItemType.Resource) continue;
+                IResource resource = folder.GetResource(remoteItem.DisplayName);
+
+                resourceType existItem = default(resourceType);
+                //if (trackDict.ContainsKey(remoteItem.DisplayName))
+                //    existItem = olFolder.Items.Find(String.Format("[EntryID]='{0}'", trackDict[remoteItem.DisplayName]));
+                
+                // sync decision here
+                if (existItem != null) continue;
+                
+                // TODO replace this code with in-memory procedure
+                using (Stream stream = resource.GetReadStream())
+                {
+                    using (Stream f = File.OpenWrite(tmpFilename))
+                    {
+                        CopyStream(stream, f);
+                    }
+                }
+
+                Outlook.ContactItem item = (Outlook.ContactItem)Application.Session.OpenSharedItem(tmpFilename);
+                item.Move(olFolder);
+                item.Save();
+                if (!trackDict.ContainsKey(remoteItem.DisplayName))
+                    trackDict.Add(remoteItem.DisplayName, item.EntryID);
+            }
+        }
+
         private void SyncContacts()
         {
             while (threadExecuteSyncContacts)
             {
-                IHierarchyItem[] remoteContacts = folderContacts.GetChildren();
-                foreach (IHierarchyItem remoteContact in remoteContacts)
-                {
-                    if (trackContacts.ContainsKey(remoteContact.DisplayName)) continue;
-                    if (remoteContact.ItemType == ItemType.Resource)
-                    {
-                        IResource resource = folderContacts.GetResource(remoteContact.DisplayName);
-
-                        // TODO replace this code with in-memory procedure
-                        Stream stream = resource.GetReadStream();
-                        using (Stream file = File.OpenWrite(tmpFilnameContacts))
-                        {
-                            CopyStream(stream, file);
-                        }
-                        stream.Close();
-
-                        Outlook.ContactItem contact = Application.Session.OpenSharedItem(tmpFilnameContacts) as Outlook.ContactItem;
-
-                        Outlook.ContactItem existContact = olFolderContacts.Items.Find(String.Format("[FirstName]='{0}' and [LastName]='{1}'", 
-                            contact.FirstName, contact.LastName));
-                        if (existContact != null) existContact.Delete();
-
-                        contact.Move(olFolderContacts);
-                        contact.Save();
-
-                        trackContacts.Add(remoteContact.DisplayName, contact.EntryID);
-                    }
-                }
+                IterateItems<Outlook.ContactItem>(folderContacts, olFolderContacts, trackContacts, tmpFilnameContacts);
                 SaveStats(syncStatusFilenameContacts, trackContacts);
                 Thread.Sleep(threadSleepTime);
             }
