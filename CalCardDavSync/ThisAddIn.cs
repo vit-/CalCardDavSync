@@ -43,9 +43,6 @@ namespace CalCardDavSync
         string syncStatusFilenameContacts;
         string syncStatusFilenameCalendar;
 
-        DataTrack dataTrackContacts;
-        DataTrack dataTrackCalendar;
-
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
         {
             InitVars();
@@ -86,13 +83,9 @@ namespace CalCardDavSync
 
             syncStatusFilenameContacts = Path.Combine(appDir, "synccontacts.dat");
             syncStatusFilenameCalendar = Path.Combine(appDir, "synccalendar.dat");
-
-            //Loading track info
-            dataTrackContacts = new DataTrack(syncStatusFilenameContacts);
-            dataTrackCalendar = new DataTrack(syncStatusFilenameCalendar);
         }
 
-        private void IterateItems<resourceType>(IFolder folder, Outlook.Folder olFolder, DataTrack dataTrack, string tmpFilename)
+        private void IterateItems<resourceType>(IFolder folder, Outlook.Folder olFolder, string tmpFilename)
         {
             List<string> processedIds = new List<string>();
             IHierarchyItem[] remoteItems = folder.GetChildren();
@@ -156,7 +149,7 @@ namespace CalCardDavSync
         {
             while (threadExecuteSyncContacts)
             {
-                IterateItems<Outlook.ContactItem>(session.OpenFolder(urlContacts), olFolderContacts, dataTrackContacts, tmpFilnameContacts);
+                IterateItems<Outlook.ContactItem>(session.OpenFolder(urlContacts), olFolderContacts, tmpFilnameContacts);
                 Thread.Sleep(threadSleepTime);
             }
         }
