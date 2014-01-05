@@ -1,8 +1,10 @@
 ﻿using System;
+using System.IO;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Runtime.Serialization.Formatters.Binary;
 
 namespace CalCardDavSync
 {
@@ -12,15 +14,15 @@ namespace CalCardDavSync
         {
             public string RemoteID { get; private set; }
             public string LocalID { get; private set; }
-            public DateTime ModifyDate { get; private set; }
+            public DateTime LocalModifyDate { get; private set; }
             public int ID { get; private set; }
 
-            public ItemData(int id, string remoteID, string localID, DateTime modifyDate)
+            public ItemData(int id, string remoteID, string localID, DateTime localModifyDate)
             {
                 ID = id;
                 RemoteID = remoteID;
                 LocalID = localID;
-                ModifyDate = modifyDate;
+                LocalModifyDate = localModifyDate;
             }
         }
         private int counter = 0;
@@ -34,6 +36,16 @@ namespace CalCardDavSync
             localIDs.Add(localID, new List<string>() { remoteID, counter.ToString() });
             modifyDates.Add(counter, modifyDate);
             counter++;
+        }
+
+        public bool ContainsRemoteID(string remoteID)
+        {
+            return remoteIDs.ContainsKey(remoteID);
+        }
+
+        public bool ContainsLocalID(string localID)
+        {
+            return localIDs.ContainsKey(localID);
         }
 
         public void RemoveByRemoteID(string remoteID)
@@ -71,6 +83,36 @@ namespace CalCardDavSync
             string remoteID = value[0];
             int id = Convert.ToInt32(value[1]);
             return new ItemData(id, remoteID, localID, modifyDates[id]);
+        }
+
+        public void Dump(string filename)
+        {
+            BinaryFormatter formatter = new BinaryFormatter();
+            using (Stream f = File.OpenWrite(filename))
+            {
+                formatter.Serialize(f, counter);
+                formatter.Serialize(f, remoteIDs);
+                formatter.Serialize(f, localIDs);
+                formatter.Serialize(f, modifyDates);
+            }
+        }
+
+        public DataTrack() { }
+
+        public DataTrack(string filename)
+        {
+            BinaryFormatter formatter = new BinaryFormatter();
+            try
+            {
+                using (Stream f = File.OpenRead(filename))
+                {
+                    counter = (int) formatter.Deserialize(f);
+                    remoteIDs = formatter.Deserialize(f) as Dictionary<string, List<string>>;
+                    localIDs = formatter.Deserialize(f) as Dictionary<string, List<string>>;
+                    modifyDates = formatter.Deserialize(f) as Dictionary<int, DateTime>;
+                }
+            }
+            catch { }
         }
     }
 }

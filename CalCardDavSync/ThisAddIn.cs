@@ -44,15 +44,15 @@ namespace CalCardDavSync
 
         string syncStatusFilenameContacts;
         string syncStatusFilenameCalendar;
-        Dictionary<string, string> trackContacts;
-        Dictionary<string, string> trackCalendar;
+
+        DataTrack dataTrackContacts;
+        DataTrack dataTrackCalendar;
 
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
         {
             InitVars();
-            LoadStats();
             threadSyncContacts = new Thread(new ThreadStart(SyncContacts));
-            threadSyncCalendar = new Thread(new ThreadStart(SyncCalendar));
+            //threadSyncCalendar = new Thread(new ThreadStart(SyncCalendar));
 
             threadSyncContacts.Start();
             //threadSyncCalendar.Start();
@@ -79,27 +79,7 @@ namespace CalCardDavSync
             session.Credentials = new NetworkCredential(login, password);
             folderContacts = session.OpenFolder(urlContacts);
             folderCalendar = session.OpenFolder(urlCalendar);
-        }
 
-        private Dictionary<string, string> LoadStats(string filename)
-        {
-            Dictionary<string, string> result;
-            BinaryFormatter formatter = new BinaryFormatter();
-            try
-            {
-                using (Stream f = File.OpenRead(filename))
-                {
-                    result = formatter.Deserialize(f) as Dictionary<string, string>;
-                }
-            }
-            catch { 
-                return new Dictionary<string, string>();
-            }
-            return result;
-        }
-
-        private void LoadStats()
-        {
             string appDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             appDir = Path.Combine(appDir, "CalCardDavSync");
             if (!Directory.Exists(appDir)) Directory.CreateDirectory(appDir);
@@ -107,25 +87,12 @@ namespace CalCardDavSync
             syncStatusFilenameContacts = Path.Combine(appDir, "synccontacts.dat");
             syncStatusFilenameCalendar = Path.Combine(appDir, "synccalendar.dat");
 
-            trackContacts = LoadStats(syncStatusFilenameContacts);
-            trackCalendar = LoadStats(syncStatusFilenameCalendar);
+            //Loading track info
+            dataTrackContacts = new DataTrack(syncStatusFilenameContacts);
+            dataTrackCalendar = new DataTrack(syncStatusFilenameCalendar);
         }
 
-        private void SaveStats(string filename, Dictionary<string, string> dict){
-            BinaryFormatter formatter = new BinaryFormatter();
-            using (Stream f = File.OpenWrite(filename))
-            {
-                formatter.Serialize(f, dict);
-            }
-        }
-
-        private void SaveStats()
-        {
-            SaveStats(syncStatusFilenameContacts, trackContacts);
-            SaveStats(syncStatusFilenameCalendar, trackCalendar);
-        }
-
-        private void IterateItems<resourceType>(IFolder folder, Outlook.Folder olFolder, Dictionary<string, string> trackDict, string tmpFilename)
+        private void IterateItems<resourceType>(IFolder folder, Outlook.Folder olFolder, DataTrack dataTrack, string tmpFilename)
         {
             IHierarchyItem[] remoteItems = folder.GetChildren();
             foreach (IHierarchyItem remoteItem in remoteItems)
@@ -134,11 +101,14 @@ namespace CalCardDavSync
                 IResource resource = folder.GetResource(remoteItem.DisplayName);
 
                 resourceType existItem = default(resourceType);
-                //if (trackDict.ContainsKey(remoteItem.DisplayName))
-                //    existItem = olFolder.Items.Find(String.Format("[EntryID]='{0}'", trackDict[remoteItem.DisplayName]));
-                
                 // sync decision here
-                if (existItem != null) continue;
+                var itemData = dataTrack.GetByRemoteID(remoteItem.DisplayName);
+                if (itemData != null)
+                {
+                    continue;
+                    existItem = (resourceType) Application.Session.GetItemFromID(itemData.LocalID, olFolder.StoreID);
+                    if (existItem != null) continue;
+                }
                 
                 // TODO replace this code with in-memory procedure
                 using (Stream stream = resource.GetReadStream())
@@ -149,11 +119,11 @@ namespace CalCardDavSync
                     }
                 }
 
-                Outlook.ContactItem item = (Outlook.ContactItem)Application.Session.OpenSharedItem(tmpFilename);
+                Outlook.ContactItem item = (Outlook.ContactItem) Application.Session.OpenSharedItem(tmpFilename);
                 item.Move(olFolder);
                 item.Save();
-                if (!trackDict.ContainsKey(remoteItem.DisplayName))
-                    trackDict.Add(remoteItem.DisplayName, item.EntryID);
+                if (!dataTrack.ContainsRemoteID(remoteItem.DisplayName))
+                    dataTrack.Add(remoteItem.DisplayName, item.EntryID, resource.LastModified);
             }
         }
 
@@ -161,43 +131,12 @@ namespace CalCardDavSync
         {
             while (threadExecuteSyncContacts)
             {
-                IterateItems<Outlook.ContactItem>(folderContacts, olFolderContacts, trackContacts, tmpFilnameContacts);
-                SaveStats(syncStatusFilenameContacts, trackContacts);
+                IterateItems<Outlook.ContactItem>(folderContacts, olFolderContacts, dataTrackContacts, tmpFilnameContacts);
+                dataTrackContacts.Dump(syncStatusFilenameContacts);
                 Thread.Sleep(threadSleepTime);
             }
         }
 
-        private void SyncCalendar()
-        {
-            while (threadExecuteSyncCalendar)
-            {
-                IHierarchyItem[] remoteEvents = folderCalendar.GetChildren();
-                foreach (IHierarchyItem remoteEvent in remoteEvents)
-                {
-                    if (trackCalendar.ContainsKey(remoteEvent.DisplayName)) continue;
-                    if (remoteEvent.ItemType == ItemType.Resource)
-                    {
-                        IResource resource = folderCalendar.GetResource(remoteEvent.DisplayName);
-
-                        // TODO replace this code with in-memory procedure
-                        Stream stream = resource.GetReadStream();
-                        using (Stream file = File.OpenWrite(tmpFilnameCalendar))
-                        {
-                            CopyStream(stream, file);
-                        }
-                        stream.Close();
-
-                        Outlook.AppointmentItem appointment = Application.Session.OpenSharedItem(tmpFilnameCalendar) as Outlook.AppointmentItem;
-                        appointment.Move(olFolderCalendar);
-                        appointment.Save();
-
-                        trackCalendar.Add(remoteEvent.DisplayName, appointment.EntryID);
-                    }
-                }
-                SaveStats(syncStatusFilenameCalendar, trackCalendar);
-                Thread.Sleep(threadSleepTime);
-            }
-        }
 
         /// <summary>
         /// Copies the contents of input to output. Doesn't close either stream.
