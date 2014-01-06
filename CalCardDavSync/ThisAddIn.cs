@@ -31,6 +31,7 @@ namespace CalCardDavSync
         string password = "test";
         string urlContacts = "";
         string urlCalendar = "";
+        string storeName = "";
         
         WebDavSession session;
 
@@ -39,9 +40,6 @@ namespace CalCardDavSync
 
         string tmpFilnameContacts;
         string tmpFilnameCalendar;
-
-        string syncStatusFilenameContacts;
-        string syncStatusFilenameCalendar;
 
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
         {
@@ -64,7 +62,16 @@ namespace CalCardDavSync
 
         private void InitVars()
         {
-            Outlook.Store store = Application.Session.Stores[1]; // TODO this is bad
+            Outlook.Store store = null;
+            // There is no good method for searching store.
+            foreach (Outlook.Store s in Application.Session.Stores)
+            {
+                if (s.DisplayName == storeName) 
+                { 
+                    store = s;
+                    break;
+                }
+            }
             olFolderContacts = store.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderContacts) as Outlook.Folder;
             olFolderCalendar = store.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderCalendar) as Outlook.Folder;
 
@@ -76,13 +83,6 @@ namespace CalCardDavSync
 
             session = new WebDavSession();
             session.Credentials = new NetworkCredential(login, password);
-
-            string appDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            appDir = Path.Combine(appDir, "CalCardDavSync");
-            if (!Directory.Exists(appDir)) Directory.CreateDirectory(appDir);
-
-            syncStatusFilenameContacts = Path.Combine(appDir, "synccontacts.dat");
-            syncStatusFilenameCalendar = Path.Combine(appDir, "synccalendar.dat");
         }
 
         private void IterateItems<resourceType>(IFolder folder, Outlook.Folder olFolder, string tmpFilename)
@@ -109,7 +109,7 @@ namespace CalCardDavSync
                         continue;
                     }
                 }
-                
+
                 // TODO replace this code with in-memory procedure
                 using (Stream stream = resource.GetReadStream())
                 {
@@ -119,12 +119,12 @@ namespace CalCardDavSync
                     }
                 }
 
+                // TODO fix bug with encodings. UTF8 is recognized as CP1252. WTF?
                 Outlook.ContactItem item = (Outlook.ContactItem) Application.Session.OpenSharedItem(tmpFilename);
                 File.Delete(tmpFilename);
                 
                 item.UserProperties.Add("remoteID", Outlook.OlUserPropertyType.olText).Value = remoteItem.DisplayName;
                 item.UserProperties.Add("modifyDate", Outlook.OlUserPropertyType.olDateTime).Value = remoteItem.LastModified;
-                
                 item.Move(olFolder);
                 item.Save();
             }
@@ -153,7 +153,6 @@ namespace CalCardDavSync
                 Thread.Sleep(threadSleepTime);
             }
         }
-
 
         /// <summary>
         /// Copies the contents of input to output. Doesn't close either stream.
